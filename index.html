@@ -1,0 +1,649 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Dự báo mưa tổ hợp Việt Nam</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7.26.4/babel.min.js"></script>
+<style>
+  :root{--bg:#fff;--fg:#16202b;--muted:#6b7a8c;--line:#dfe6ee;
+    --panel:rgba(255,255,255,.96);--accent:#1f6fb2;--shadow:0 2px 12px rgba(16,32,48,.18);}
+  *{box-sizing:border-box;}
+  html,body,#root{height:100%;margin:0;}
+  body{font:14px/1.45 "Segoe UI",Roboto,Arial,sans-serif;color:var(--fg);background:var(--bg);overflow:hidden;}
+  #map{position:absolute;inset:0;z-index:0;background:#eef2f6;}
+  .leaflet-container{font:inherit;}
+  .island-label{font:400 12px/1.15 'Segoe UI',Roboto,Arial,sans-serif;color:#2a3a4a;
+    text-shadow:0 0 3px #fff,0 0 3px #fff,0 0 3px #fff;white-space:nowrap;text-align:center;letter-spacing:.2px;}
+  /* Show the raster as EXACT 0.25 deg grid cells (nearest-neighbour), same as
+     the dam dashboard — Leaflet's default smooth upscaling blurs cell edges. */
+  .leaflet-raster-pane img{image-rendering:pixelated;image-rendering:crisp-edges;}
+  .card{background:var(--panel);border-radius:10px;box-shadow:var(--shadow);border:1px solid var(--line);}
+  .float{position:absolute;z-index:500;}
+  .topleft{top:12px;left:12px;width:344px;max-width:calc(100vw - 24px);
+    max-height:calc(100vh - 104px);overflow-y:auto;overflow-x:hidden;padding-right:4px;scrollbar-width:thin;}
+  .stack{display:flex;flex-direction:column;gap:10px;}
+  .brand{padding:11px 13px;position:relative;padding-right:46px;}
+  /* Collapse control. The panel is full-width on a phone and would otherwise
+     cover the map, so it starts collapsed there (see panelOpen) and the whole
+     stack below the title hides. */
+  .ptoggle{position:absolute;top:8px;right:8px;width:30px;height:30px;
+    border:1px solid var(--line);background:#fff;border-radius:8px;cursor:pointer;
+    color:var(--muted);font-size:13px;line-height:1;display:flex;
+    align-items:center;justify-content:center;padding:0;}
+  .ptoggle:hover{border-color:var(--accent);color:var(--accent);}
+  .ptoggle:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
+  .stack.collapsed > *:not(.brand){display:none;}
+  .topleft.collapsed{max-height:none;overflow:visible;}
+  .brand h1{margin:0;font-size:15px;font-weight:800;}
+  .brand .sub{color:var(--muted);font-size:11.5px;margin-top:3px;}
+  .pad{padding:11px 13px;}
+  .title{font-weight:700;font-size:13px;margin:0 0 8px;}
+  .hint{color:var(--muted);font-size:11.5px;line-height:1.4;}
+  .lbl{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin:0 0 5px;}
+  .seg{display:flex;gap:4px;flex-wrap:wrap;}
+  .seg button{flex:1 1 auto;padding:6px 9px;border-radius:7px;border:1px solid var(--line);background:#fff;
+    font:inherit;font-size:12.5px;cursor:pointer;color:var(--fg);white-space:nowrap;}
+  .seg button.on{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600;}
+  .seg button:disabled{opacity:.35;cursor:not-allowed;}
+  .seg.mdl button.on{background:var(--mc,#37474f);border-color:var(--mc,#37474f);color:var(--mct,#fff);}
+  .legend-row{display:flex;align-items:center;gap:9px;padding:3px 0;font-size:12.5px;}
+  .swatch{width:15px;height:15px;border-radius:3px;flex:0 0 auto;border:1px solid rgba(0,0,0,.16);}
+  .timeline{position:absolute;left:0;right:0;bottom:0;z-index:500;background:#1c2530;color:#fff;box-shadow:0 -2px 12px rgba(0,0,0,.28);}
+  .tl-inner{display:flex;align-items:stretch;}
+  .tl-play{flex:0 0 auto;width:56px;border:0;background:#2b3746;color:#ffd54a;font-size:19px;cursor:pointer;border-right:1px solid #3a4757;}
+  .tl-play:hover{background:#35435a;}
+  .tl-days{flex:1 1 auto;display:flex;overflow-x:auto;}
+  .tl-day{flex:1 0 108px;border:0;border-right:1px solid #2f3a49;background:transparent;color:#b9c6d4;
+    font:inherit;padding:8px 4px 10px;cursor:pointer;text-align:center;position:relative;}
+  .tl-day:hover{background:#26313e;}
+  .tl-day.on{color:#ffd54a;font-weight:700;}
+  .tl-day.on::after{content:"";position:absolute;left:0;right:0;bottom:0;height:3px;background:#ffd54a;}
+  .tl-dow{font-size:13px;}
+  .tl-date{font-size:11px;opacity:.85;}
+  .vfnote{background:#f3f0ff;border:1px solid #d9cff5;color:#4a3a7a;border-radius:8px;padding:8px 11px;font-size:12px;margin-top:8px;}
+  .btn-link{background:none;border:0;color:var(--accent);font:inherit;font-size:12px;
+    cursor:pointer;padding:0;margin-top:6px;text-decoration:underline;}
+  .credit{font-size:11px;line-height:1.5;color:var(--muted);}
+  .credit a{color:var(--accent);}
+  .credit b{color:var(--fg);font-weight:600;}
+  .loading{padding:40px;text-align:center;color:var(--muted);}
+  .unit-tip{background:rgba(255,255,255,.95);border:1px solid var(--line);box-shadow:var(--shadow);
+    color:#16202b;font-size:12px;padding:4px 8px;border-radius:6px;}
+  .popup-tbl{border-collapse:collapse;font-size:12px;margin-top:4px;}
+  .popup-tbl th,.popup-tbl td{padding:2px 7px;text-align:right;border-bottom:1px solid #eef1f5;}
+  .popup-tbl th{color:var(--muted);font-weight:600;}
+  .popup-tbl td:first-child,.popup-tbl th:first-child{text-align:left;}
+  .drawer{position:absolute;top:0;right:0;bottom:0;width:494px;max-width:100vw;z-index:900;background:#fff;
+    border-left:1px solid var(--line);box-shadow:-3px 0 16px rgba(16,32,48,.16);display:flex;flex-direction:column;}
+  .drawer header{padding:13px 15px;border-bottom:1px solid var(--line);display:flex;align-items:flex-start;gap:10px;}
+  .drawer header h2{margin:0;font-size:18px;}
+  .drawer header .sub{color:var(--muted);font-size:12.5px;margin-top:3px;}
+  .drawer .body{overflow-y:auto;padding:13px 15px 32px;}
+  .xbtn{margin-left:auto;border:0;background:#eef2f6;border-radius:7px;width:30px;height:30px;
+    font-size:17px;cursor:pointer;flex:0 0 auto;color:var(--muted);}
+  .chart{margin:0 0 20px;}
+  .chart h3{font-size:13px;margin:0 0 2px;}
+  .chart .cap{color:var(--muted);font-size:11.5px;margin:0 0 6px;}
+  .keys{display:flex;gap:12px;flex-wrap:wrap;font-size:11.5px;color:var(--muted);margin-bottom:8px;}
+  .key{display:flex;align-items:center;gap:5px;}
+  .key i{width:11px;height:11px;border-radius:2px;display:inline-block;}
+  .csvbtn{background:var(--accent);color:#fff;border:0;border-radius:7px;padding:7px 12px;font:inherit;
+    font-size:12.5px;font-weight:600;cursor:pointer;margin-bottom:14px;}
+  .csvbtn:hover{filter:brightness(1.06);}
+  @media (max-width:720px){.drawer{width:100vw;}}
+  .searchbox{position:relative;}
+  .searchbox input{width:100%;padding:11px 13px;border:0;border-radius:10px;font:inherit;outline:none;background:transparent;color:var(--fg);}
+  .results{position:absolute;top:100%;left:0;right:0;margin-top:6px;max-height:340px;overflow-y:auto;z-index:10;}
+  .results button{display:block;width:100%;text-align:left;padding:8px 12px;background:none;border:0;
+    border-bottom:1px solid var(--line);font:inherit;color:inherit;cursor:pointer;}
+  .results button:hover{background:#eef5fb;}
+  .results .sub{color:var(--muted);font-size:12px;}
+  .results .tag{float:right;font-size:10.5px;color:var(--muted);border:1px solid var(--line);
+    border-radius:4px;padding:0 4px;margin-left:6px;}
+  @media (max-width:720px){.topleft{width:calc(100vw - 24px);}}
+</style>
+</head>
+<body>
+<div id="root"><div class="loading">Đang tải dữ liệu dự báo…</div></div>
+<!-- shared logic (constants, helpers, Timeline, Credit, off-grid note) — one
+     copy of dashboard-core.js per site folder, synced from web-shared/ -->
+<script type="text/babel" data-presets="react" src="dashboard-core.js?v=1"></script>
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useMemo, useRef } = React;
+const { MODEL_COLOR, FIELDS, FIELD_ORDER, j, dmy, dm, dow, hhmm, num, norm,
+  binsFor, colorFor, winTiles, stepTiles, PAD, niceMax, Axes,
+  Timeline, OffGridNote, Credit } = window.QPFShared;
+
+const MODES=[{key:"tinh",label:"Tỉnh / Thành"},{key:"xa",label:"Phường / Xã"},{key:"grid",label:"Ô lưới"}];
+// Unit (polygon) values are area-weighted 24-h window aggregates — per-step
+// int/cum only exist on the raster, so those two fields are grid-mode-only.
+const UNIT_FIELDS=["q50","q90","x50"];
+
+// value arrays for a unit level: frames.json for the five ensemble sources,
+// gm_frames.json for VForce-cast (q50/q90 only, its own 2 windows)
+function unitValues(frames,gm,level,model,field,winIdx){
+  if(model==="vforce"){
+    const g=gm&&gm[level]; if(!g||!g[field]) return null;
+    const arr=g[field][winIdx]; if(!arr) return null;
+    const o={}; (g.ids||[]).forEach((id,i)=>o[id]=arr[i]); return o;
+  }
+  const lv=frames&&frames[level]; if(!lv) return null;
+  const s=(lv.sources||{})[model]; if(!s||!s[field]) return null;
+  const arr=s[field][winIdx]; if(!arr) return null;
+  const o={}; (lv.ids||[]).forEach((id,i)=>o[id]=arr[i]); return o;
+}
+
+/* ------------------------------------------------------------------ map */
+function MapPane({mode,meta,tmeta,geo,frames,gm,model,field,frameIdx,ver,winCount,onPick,focusId,onPickGrid,zoomTo}){
+  const elRef=useRef(null),mapRef=useRef(null),rasterRef=useRef(null);
+  const layerRef=useRef(null),perIdRef=useRef({}),modeRef=useRef(null);
+  const [zoom,setZoom]=useState(6);
+  const adminRef=useRef(null),adminXaRef=useRef(null),adminFgRef=useRef(null);
+  const onPickRef=useRef(onPick); onPickRef.current=onPick;
+  const onGridRef=useRef(onPickGrid); onGridRef.current=onPickGrid;
+  const modeVal=useRef(mode); modeVal.current=mode;
+  const bins=binsFor(field,meta.legend);
+
+  useEffect(()=>{
+    const map=L.map(elRef.current,{preferCanvas:true,zoomControl:false,minZoom:4,maxZoom:12}).setView([16.2,106.4],6);
+    L.control.zoom({position:"topright"}).addTo(map);
+    L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}",
+      {attribution:"Tiles &copy; Esri",maxZoom:16,maxNativeZoom:16}).addTo(map);
+    map.createPane("raster"); map.getPane("raster").style.zIndex=200;
+    map.createPane("admin"); map.getPane("admin").style.zIndex=400;
+    map.getPane("admin").style.pointerEvents="none";
+    map.createPane("labels"); map.getPane("labels").style.zIndex=655; map.getPane("labels").style.pointerEvents="none";
+    L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Reference/MapServer/tile/{z}/{y}/{x}",
+      {maxZoom:16,maxNativeZoom:16,pane:"labels"}).addTo(map);
+    // Vietnamese island groups, labelled prominently like a major city
+    [[16.5,112.0,"quần đảo Hoàng Sa<br>(Việt Nam)"],[9.7,113.8,"quần đảo Trường Sa<br>(Việt Nam)"]]
+      .forEach(([la,lo,txt])=>L.marker([la,lo],{pane:"labels",interactive:false,
+        icon:L.divIcon({className:"island-label",html:txt,iconSize:[150,34],iconAnchor:[75,17]})}).addTo(map));
+    // in Ô lưới mode a click on the basemap queries the VForce-cast cell
+    map.on("click",(e)=>{ if(modeVal.current==="grid") onGridRef.current(e.latlng); });
+    map.on("zoomend",()=>setZoom(map.getZoom()));
+    mapRef.current=map;
+    return ()=>map.remove();
+  },[]);
+
+  // ------ grid mode: pre-rendered PNG rasters, identical to the dam map
+  useEffect(()=>{
+    const map=mapRef.current; if(!map||!tmeta) return;
+    const on = mode==="grid";
+    const M=tmeta.models[model];
+    if(!on||!M||!M.fields.includes(field)){
+      if(rasterRef.current){map.removeLayer(rasterRef.current);rasterRef.current=null;} return;
+    }
+    const [s,w,n,e]=M.bounds; const b=[[s,w],[n,e]];
+    const url=`tiles/${model}/${field}/${String(frameIdx).padStart(2,"0")}.png?v=${encodeURIComponent(ver)}`;
+    if(!rasterRef.current) rasterRef.current=L.imageOverlay(url,b,{opacity:.74,pane:"raster",interactive:false}).addTo(map);
+    else{ rasterRef.current.setUrl(url); rasterRef.current.setBounds(b); if(!map.hasLayer(rasterRef.current)) rasterRef.current.addTo(map); }
+  },[mode,tmeta,model,field,frameIdx,ver]);
+
+  // Zoom to a searched unit. `zoomTo` is {bounds:[w,s,e,n],n} — the counter n
+  // makes picking the SAME unit twice still fire (bounds alone would be an
+  // unchanged dependency).
+  useEffect(()=>{
+    const map=mapRef.current; if(!map||!zoomTo||!zoomTo.bounds) return;
+    const [w,so,e,no]=zoomTo.bounds;
+    map.fitBounds([[so,w],[no,e]],{padding:[40,40],maxZoom:11});
+  },[zoomTo]);
+
+  // ------ Ô lưới: admin outlines over the raster. The raster alone gives no
+  // sense of WHERE a cell is, so provinces are always outlined and communes
+  // fade in once the zoom makes them legible. Non-interactive pane so the
+  // point query still receives the click.
+  useEffect(()=>{
+    const map=mapRef.current; if(!map) return;
+    const on = mode==="grid";
+    const drop=(r)=>{ if(r.current){map.removeLayer(r.current);r.current=null;} };
+    if(!on){ drop(adminRef); drop(adminXaRef); drop(adminFgRef); return; }
+    // opacities are half the first pass — the outlines are orientation aids,
+    // they must not compete with the rainfall raster underneath
+    if(geo.tinh&&!adminRef.current){
+      adminRef.current=L.geoJSON(geo.tinh,{pane:"admin",interactive:false,
+        style:()=>({color:"#243746",weight:1.3,opacity:.45,fill:false})}).addTo(map);
+    }
+    // neighbouring-country provinces: the raster spans 94-120 E, so without
+    // these only Vietnam would have any admin reference
+    if(geo.adm1&&!adminFgRef.current){
+      adminFgRef.current=L.geoJSON(geo.adm1,{pane:"admin",interactive:false,
+        style:()=>({color:"#3a4a5a",weight:0.9,opacity:.32,fill:false})}).addTo(map);
+    }
+    if(zoom>=8&&geo.xa&&!adminXaRef.current){
+      adminXaRef.current=L.geoJSON(geo.xa,{pane:"admin",interactive:false,
+        style:()=>({color:"#4a5b6b",weight:0.5,opacity:.28,fill:false})}).addTo(map);
+    }
+    if(zoom<8) drop(adminXaRef);
+    if(adminRef.current) adminRef.current.bringToFront();
+  },[mode,geo,zoom]);
+
+  // ------ unit modes: one geoJSON layer per level, recoloured in place
+  useEffect(()=>{
+    const map=mapRef.current; if(!map) return;
+    const level = mode==="grid"?null:mode;
+    // rebuild when the mode changes OR when the geojson for the current level
+    // arrives after the first render (xa.geojson loads late)
+    if(modeRef.current!==level||(level&&!layerRef.current&&geo[level])){
+      if(layerRef.current){map.removeLayer(layerRef.current);layerRef.current=null;perIdRef.current={};}
+      modeRef.current=level;
+      if(level&&geo[level]){
+        const lyr=L.geoJSON(geo[level],{
+          style:()=>({weight:level==="xa"?0.35:0.8,color:"#8fa1b3",fillOpacity:.85,fillColor:"#eef2f6"}),
+          onEachFeature:(f,l)=>{ perIdRef.current[f.properties.id]=l;
+            l.bindTooltip(f.properties.ten,{sticky:true,className:"unit-tip"});
+            // click opens the time-series drawer (replaces the old popup —
+            // charts tell the story a 4-row table could not)
+            l.on("click",()=>onPickRef.current(f.properties)); },
+        }).addTo(map);
+        layerRef.current=lyr;
+      }
+    }
+    if(!level||!layerRef.current) return;
+    const vals=unitValues(frames,gm,level,model,field,frameIdx)||{};
+    const win = model==="vforce"&&meta.gm ? meta.gm.windows[frameIdx] : null;
+    // per-source window axis (model_windows) — a 6-hourly model's frames sit
+    // on its own ends, so label from ITS axis, not the shared ensemble one
+    const mw=((meta.model_windows||{})[model]||[])[frameIdx];
+    const winLab = model==="vforce"
+      ? (win?`+${win.lead_h}h (VForce-cast)`:"")
+      : (mw?`+${mw.lead_h}h`:(meta.windows[frameIdx]?`+${24*(frameIdx+1)}h`:""));
+    Object.entries(perIdRef.current).forEach(([id,l])=>{
+      const v=vals[id]; const col=colorFor(v,bins); const sel=id===focusId;
+      l.setStyle({fillColor:col||"#eef2f6",fillOpacity:col?.85:.45,
+        color:sel?"#12324d":"#8fa1b3",weight:sel?2.4:(level==="xa"?0.35:0.8)});
+      if(sel) l.bringToFront();
+      l.bindTooltip(`${l.feature.properties.ten} — ${num(v,field==="x50"?0:1)} ${FIELDS[field].unit}`,
+        {sticky:true,className:"unit-tip"});
+    });
+  },[mode,geo,frames,gm,model,field,frameIdx,bins,meta,winCount,focusId]);
+
+  return <div id="map" ref={elRef} />;
+}
+
+/* ---------------------------------------------------------- unit card */
+// Clicking a Tỉnh/Phường-Xã no longer opens the in-app time-series drawer:
+// every unit has a standalone page (charts, warning summary, CSV) under
+
+/* Search over BOTH levels in one box. Communes must be disambiguated by
+   province — names like Tan Thanh / Tan Thanh repeat across provinces — so
+   every commune row shows its province. Picking a result switches the display
+   mode to match the result's level, then zooms to the unit's own bounds. */
+function Search({geo,onPick}){
+  const [q,setQ]=useState("");
+  const hits=useMemo(()=>{
+    const t=norm(q.trim()); if(t.length<2) return [];
+    const out=[];
+    const scan=(fc,level)=>{ if(!fc||!fc.features) return;
+      for(const f of fc.features){
+        if(out.length>=60) return;
+        if(norm(f.properties.ten).includes(t)) out.push({f,level});
+      }};
+    scan(geo&&geo.tinh,"tinh");          // provinces first: fewer, broader
+    scan(geo&&geo.xa,"xa");
+    return out;
+  },[q,geo]);
+  return <div className="card searchbox">
+    <input value={q} onChange={e=>setQ(e.target.value)}
+      placeholder="Tìm tỉnh / thành, phường / xã…"/>
+    {hits.length>0&&<div className="card results">
+      {hits.map(({f,level})=><button key={level+"-"+f.properties.id}
+        onClick={()=>{setQ("");onPick(f.properties,level);}}>
+        <span className="tag">{level==="tinh"?"Tỉnh/Thành":(f.properties.loai||"Xã")}</span>
+        <div>{f.properties.ten}</div>
+        {level==="xa"&&<div className="sub">{f.properties.ten_tinh}</div>}
+      </button>)}
+    </div>}
+  </div>;
+}
+
+// adminvn/ (built by process_admin_html.py, mirrored from QPF-adminVN).
+// This card opens it in a new tab or downloads the self-contained file.
+// Ô lưới (grid) mode keeps its in-app VForce-cast point series (GridDetail).
+function UnitCard({unit,pages,onClose,ver}){
+  const level=unit.tinh?"xa":"tinh";
+  const rel=pages&&pages[level]?pages[level][unit.id]:null;
+  // Cache-bust: the unit page is self-contained with this run's forecast
+  // embedded, so an un-versioned URL can serve a stale cached copy.
+  const href=rel?("adminvn/"+rel+"?v="+encodeURIComponent(ver||"")):null;
+  const file=rel?rel.split("/").pop():"";
+  return <aside className="drawer" style={{width:360}}>
+    <header>
+      <div><h2>{unit.ten}</h2>
+        <div className="sub">{[unit.loai,unit.ten_tinh].filter(Boolean).join(" · ")||"Tỉnh / Thành phố"}</div></div>
+      <button className="xbtn" onClick={onClose} aria-label="Dong">×</button>
+    </header>
+    <div className="body">
+      {href?<>
+        <p className="hint" style={{fontSize:12.5,marginTop:0}}>
+          Trang chi tiết của đơn vị này gồm: tóm tắt cảnh báo, bản đồ ranh giới
+          &amp; trường mưa theo ô lưới, chuỗi thời gian, xác suất mưa lớn, biểu
+          đồ hộp và tải CSV. Trang là một tệp HTML tự chứa — tải về vẫn mở được
+          không cần mạng.</p>
+        <a className="csvbtn" style={{display:"inline-block",textDecoration:"none",marginRight:8}}
+          href={href} target="_blank" rel="noopener">Mở trang chi tiết ↗</a>
+        <a className="csvbtn" style={{display:"inline-block",textDecoration:"none",background:"#2a3542"}}
+          href={href} download={file}>⤓ Tải về (HTML)</a>
+      </>:<p className="hint">Trang chi tiết của đơn vị này chưa sẵn sàng
+        (đang được cập nhật theo chu kỳ dự báo).</p>}
+    </div>
+  </aside>;
+}
+
+/* ------------------------------------------------- grid-cell (Ô lưới) drawer */
+// The point query for Ô lưới mode: the VForce-cast click grids give a
+// cumulative q50/q90 and a per-interval bucket at one 0.1 deg cell, for every
+// lead out to 48 h. Values are integer tenths -> multiply by `scale`.
+function GridDetail({point,onClose,model,models}){
+  if(!point) return null;
+  const s=point.series||[];
+  const has=s.some(p=>p.q50!==null&&p.q50!==undefined);
+  const w=452,h=200,ih=h-PAD.t-PAD.b,iw=w-PAD.l-PAD.r;
+  const ymax=niceMax(Math.max(...s.map(p=>p.q90||0),0),4,10);
+  const t0=Date.parse(s[0]?.valid_ict||0),t1=Date.parse(s[s.length-1]?.valid_ict||0);
+  const X=t=>PAD.l+iw*(t-t0)/Math.max(1,t1-t0);
+  const Y=v=>PAD.t+ih*(1-Math.min(v,ymax)/ymax);
+  const line=(k)=>s.filter(p=>p[k]!=null).map(p=>`${X(Date.parse(p.valid_ict))},${Y(p[k])}`).join(" ");
+  const rate=s.map(p=>(p.bucket||0)/(p.interval_h||1));
+  const rmax=niceMax(Math.max(...rate,0),4,2);
+
+  return <aside className="drawer">
+    <header>
+      <div><h2>{point.place&&(point.place.commune||point.place.province)
+          ? (point.place.commune||point.place.province) : "Ô lưới"}</h2>
+        <div className="sub"><b>VForce-cast</b> tại điểm</div>
+        <div className="sub">
+          {point.place&&[point.place.commune&&point.place.province?point.place.province:null,
+                         point.place.country].filter(Boolean).join(" · ")}
+        </div>
+        <div className="sub">{point.lat.toFixed(3)}°N, {point.lon.toFixed(3)}°E
+          {" · ô lưới 0,1°"}</div></div>
+      <button className="xbtn" onClick={onClose} aria-label="Dong">×</button>
+    </header>
+    <div className="body">
+      {!has&&<div className="vfnote">Ô lưới này không có giá trị VForce-cast.</div>}
+      {has&&<>
+        {model!=="vforce"&&<div className="vfnote" style={{background:"#fff3cd",borderColor:"#ffe08a",color:"#6b5400"}}>
+          Bản đồ đang hiển thị <b>{(models.find(m=>m.id===model)||{}).short_vi||model}</b> trên
+          lưới <b>0,25°</b>, nhưng chuỗi thời gian tại điểm chỉ có cho <b>VForce-cast</b>
+          (lưới 0,1°). Dùng chế độ <b>Tỉnh/Thành</b> hoặc <b>Phường/Xã</b> để xem chuỗi
+          của mọi nguồn.</div>}
+        <div className="vfnote">Giá trị VForce-cast tại <b>một ô lưới 0,1°</b> (không phải
+          trung bình theo diện tích như chế độ Tỉnh/Xã). Hạn dự báo 120 giờ;
+          bước 3 giờ đến +48h, sau đó 6 giờ.</div>
+        <div className="chart">
+          <h3>Mưa cộng dồn từ giờ phát tin</h3>
+          <p className="cap">Đường đậm = Q50, đường nhạt = Q90 (kịch bản cực đoan).</p>
+          <svg width="100%" viewBox={`0 0 ${w} ${h}`} role="img">
+            <Axes w={w} h={h} ymax={ymax} unit="mm" xLabels={[]}
+              thresholds={[{value:50,label:"Nguy hiểm",color:"#ef5b8c"},
+                           {value:100,label:"Rất nguy hiểm",color:"#a8324a"}]}/>
+            <polyline points={line("q90")} fill="none" stroke="#2f8fe0" strokeWidth="1.4" strokeDasharray="4 3"/>
+            <polyline points={line("q50")} fill="none" stroke="#1d4e89" strokeWidth="2"/>
+          </svg>
+        </div>
+        <div className="chart">
+          <h3>Cường độ mưa theo bước</h3>
+          <p className="cap">mm/giờ trong mỗi khoảng dự báo (1 giờ cho 6 giờ đầu, sau đó 3 giờ).</p>
+          <svg width="100%" viewBox={`0 0 ${w} ${h}`} role="img">
+            <Axes w={w} h={h} ymax={rmax} unit="mm/h" xLabels={[]}/>
+            {s.map((p,i)=>{const x=PAD.l+iw*(i+0.5)/s.length;const bw=Math.max(2,iw/s.length-2);
+              const yv=PAD.t+(h-PAD.t-PAD.b)*(1-Math.min(rate[i],rmax)/rmax);
+              return <rect key={i} x={x-bw/2} y={yv} width={bw}
+                height={Math.max(0.6,(PAD.t+(h-PAD.t-PAD.b))-yv)} fill="#1d91c0" rx="1.5"/>;})}
+          </svg>
+        </div>
+        <table className="popup-tbl" style={{width:"100%"}}>
+          <thead><tr><th>Hạn</th><th>Đến lúc</th><th>Q50</th><th>Q90</th><th>mm/h</th></tr></thead>
+          <tbody>{s.map((p,i)=><tr key={i}>
+            <td>+{p.h}h</td><td>{hhmm(p.valid_ict)} {dm(p.valid_ict)}</td>
+            <td>{num(p.q50,1)}</td><td>{num(p.q90,1)}</td><td>{num(rate[i],1)}</td></tr>)}</tbody>
+        </table>
+        <p className="hint" style={{marginTop:8}}>Q50/Q90 là mưa <b>cộng dồn</b> kể từ giờ phát tin.</p>
+      </>}
+    </div>
+  </aside>;
+}
+
+/* --------------------------------------------------------------- panels */
+function Legend({meta,mode,model,field,tile}){
+  const bins=binsFor(field,meta.legend);
+  const what=field==="int"?"cường độ mưa mỗi bước — Q50 (ô lưới thô)"
+    :field==="cum"?"mưa cộng dồn từ giờ phát tin — Q50 (ô lưới thô)"
+    :field==="x50"?"tỉ lệ thành viên tổ hợp vượt 50 mm/24 giờ"
+    :field==="q90"?"tổng mưa 24 giờ — kịch bản cực đoan"
+    :"tổng mưa 24 giờ — kịch bản điển hình";
+  const how=mode==="grid"?"giá trị từng ô lưới thô":"trung bình theo diện tích trên từng đơn vị hành chính";
+  return <div className="card pad">
+    <p className="title" style={{marginBottom:2}}>{FIELDS[field].label}</p>
+    <p className="hint" style={{marginTop:0,marginBottom:6}}>{what} · {how}{tile?` · ${tile}`:""}</p>
+    {bins.map((b,i)=><div className="legend-row" key={i}><span className="swatch" style={{background:b.color}}/><span>{b.label}</span></div>)}
+  </div>;
+}
+// Two texts ship in bulletin.json: `text` leads with VForce-cast, and
+// `ensemble_text` is the multi-model version — show whichever matches the
+// selected source, falling back to the other when only one is present.
+function Bulletin({bulletin,meta,model}){
+  const [open,setOpen]=useState(false);
+  const body=(model==="vforce"?bulletin.text:bulletin.ensemble_text)
+    ||bulletin.ensemble_text||bulletin.text||"";
+  useEffect(()=>{setOpen(false);},[body]);
+  if(!body) return null;
+  const long=body.length>180;
+  const short=long?body.slice(0,165).replace(/\s\S*$/,"")+" …":body;
+  return <div className="card pad">
+    <p className="title">Nhận định bản tin</p>
+    <div style={{whiteSpace:"pre-wrap",fontSize:12.5,lineHeight:1.55}}>{open||!long?body:short}</div>
+    {long&&<button className="btn-link" onClick={()=>setOpen(!open)}>{open?"Thu gọn":"Xem đầy đủ"}</button>}
+    <p className="hint" style={{marginTop:8}}>
+      Phát tin {hhmm(meta.issued_ict||meta.init_ict)} ICT {dmy((meta.issued_ict||meta.init_ict).slice(0,10))}
+      {bulletin.source==="gemini"?" · Nhận định tự động bởi AI Gemini":" · Nhận định tự động từ dữ liệu khí tượng"}</p>
+  </div>;
+}
+/* ------------------------------------------------------------------ app */
+function App(){
+  const [meta,setMeta]=useState(null),[tmeta,setTmeta]=useState(null);
+  const [geo,setGeo]=useState({}),[frames,setFrames]=useState(null),[gm,setGm]=useState(null);
+  const [mode,setMode]=useState("tinh");
+  const [zoomTo,setZoomTo]=useState(null);
+  // Phones: the panel covers the map, so start it collapsed there. Collapse
+  // only when the viewport is KNOWN to be narrow — innerWidth can report 0
+  // (hidden/not-yet-composited frame), and treating that as a phone would
+  // start every desktop visit collapsed.
+  const [panelOpen,setPanelOpen]=useState(()=>{
+    const w=typeof window==="undefined"?0:window.innerWidth;
+    return !(w>0&&w<=720);
+  });
+  const [model,setModel]=useState("ensemble"),[field,setField]=useState("q50"),[idx,setIdx]=useState(0);
+  const [playing,setPlaying]=useState(false),[bulletin,setBulletin]=useState(null);
+  const [focus,setFocus]=useState(null),[unitData,setUnitData]=useState(null);
+  const [gridPoint,setGridPoint]=useState(null),[pages,setPages]=useState(null);
+  const seriesCache=useRef({}),gridCache=useRef(null),nowMan=useRef(null),adminRef=useRef(null);
+
+  useEffect(()=>{(async()=>{
+    // v2.json, not latest.json: process_vn.py writes its own v1-format
+    // latest.json into this same folder and the shapes differ
+    const m=await j("v2.json?t="+Date.now());
+    const v="?v="+encodeURIComponent(m.created_utc);
+    // gm_frames is optional — the manifest drops the vforce source when
+    // gmfcast has not produced a cycle, so a 404 here must not kill the app
+    const [tm,fr,tg,g]=await Promise.all([
+      j("tiles/meta.json"+v),j("data/frames.json"+v),j("static/tinh.geojson"+v),
+      m.gm?j("data/gm_frames.json"+v).catch(()=>null):Promise.resolve(null)]);
+    setMeta(m);setTmeta(tm);setFrames(fr);setGm(g);setGeo({tinh:tg});
+    j("static/xa.geojson"+v).then(x=>setGeo(p=>({...p,xa:x}))).catch(()=>{});
+    j("static/adm1_foreign.geojson"+v).then(x=>setGeo(p=>({...p,adm1:x}))).catch(()=>{});
+    fetch("bulletin.json"+v).then(r=>r.ok?r.json():null).then(b=>b&&setBulletin(b)).catch(()=>{});
+    // unit id -> standalone page path (mirrored from QPF-adminVN)
+    fetch("adminvn/pages.json"+v).then(r=>r.ok?r.json():null).then(p=>p&&setPages(p)).catch(()=>{});
+  })().catch(e=>{document.getElementById("root").innerHTML='<div class="loading">Lỗi tải dữ liệu: '+e.message+'</div>';});},[]);
+
+  // Clicking a unit only highlights it and opens the link card — detail
+  // lives on the unit's standalone page under adminvn/ (no series fetch).
+  const pickUnit=React.useCallback((props)=>{ setFocus(props); },[]);
+  // Search result: switch the display mode to the result's level, select it,
+  // and zoom. Grid mode has no unit selection, so a pick always leaves it.
+  const pickSearch=React.useCallback((props,level)=>{
+    setMode(level); setIdx(0); setUnitData(null);
+    setFocus(props);
+    setZoomTo(z=>({bounds:props.bounds,n:(z?z.n:0)+1}));
+  },[]);
+
+  // Ô lưới point query: fetch every lead grid once (cached for the session),
+  // then index the clicked cell. Values are integer tenths -> apply `scale`.
+  const pickGrid=React.useCallback(async(latlng)=>{
+    if(!meta) return;
+    setGridPoint({lat:latlng.lat,lon:latlng.lng,series:[],loading:true});
+    try{
+      if(!nowMan.current) nowMan.current=await j("nowcast/manifest.json?v="+encodeURIComponent(meta.created_utc));
+      const man=nowMan.current;
+      if(!gridCache.current){
+        const v="?v="+encodeURIComponent(man.issue_utc);
+        gridCache.current=Promise.all(man.leads.map((_,k)=>
+          j(`nowcast/grids/${String(k).padStart(2,"0")}.json${v}`)));
+      }
+      const grids=await gridCache.current, g0=grids[0];
+      const i=Math.round((g0.lat0-latlng.lat)/-g0.dlat), jx=Math.round((latlng.lng-g0.lon0)/g0.dlon);
+      if(i<0||i>=g0.nlat||jx<0||jx>=g0.nlon){ setGridPoint(null); return; }
+      const flat=i*g0.nlon+jx;
+      const sc=(g)=>g.scale??1;
+      const series=man.leads.map((l,k)=>({h:l.h,valid_ict:l.valid_ict,interval_h:l.interval_h,
+        q50:grids[k].q50[flat]*sc(grids[k]), q90:grids[k].q90[flat]*sc(grids[k]),
+        bucket:grids[k].bucket[flat]*sc(grids[k])}));
+      // admin.json shares the click grid's geometry and maps each cell to
+      // [commune, province, country] (any part may be "" — no commune outside
+      // Vietnam). Older files stored only 2 parts, hence the length check.
+      let place=null;
+      if(!adminRef.current) adminRef.current=j("nowcast/admin.json?v="+encodeURIComponent(man.issue_utc)).catch(()=>null);
+      const a=await adminRef.current;
+      if(a){
+        const ai=Math.round((a.lat0-latlng.lat)/-a.dlat), aj=Math.round((latlng.lng-a.lon0)/a.dlon);
+        if(ai>=0&&ai<a.nlat&&aj>=0&&aj<a.nlon){
+          const t=a.idx[ai*a.nlon+aj];
+          if(t>=0){const n=a.names[t]||[];
+            place = n.length>=3 ? {commune:n[0]||"",province:n[1]||"",country:n[2]||""}
+                                : {commune:"",province:n[0]||"",country:n[1]||""};}
+        }
+      }
+      setGridPoint({lat:latlng.lat,lon:latlng.lng,series,place});
+    }catch(e){ setGridPoint(null); }
+  },[meta]);
+
+  // which fields the current mode+source can actually show
+  const avail=useMemo(()=>{
+    if(!meta) return [];
+    if(mode==="grid") return tmeta?.models[model]?.fields||[];
+    return model==="vforce"?["q50","q90"]:UNIT_FIELDS;
+  },[meta,tmeta,mode,model]);
+
+  useEffect(()=>{ if(avail.length&&!avail.includes(field))
+    setField(avail.includes("q50")?"q50":avail[0]); },[avail,field]);
+
+  const tiles=useMemo(()=>{ if(!meta) return [];
+    if(mode==="grid"){
+      if(!tmeta) return [];
+      const M=tmeta.models[model]; if(!M) return [];
+      // windows: the SELECTED source's own axis; steps: lead from the SAME
+      // per-model anchor the windows use (M.anchor_ict, shipped with the
+      // tiles by process_dam — a 6-hourly model reads +6/+12/... in line
+      // with its +24/+48 windows). Never meta.issued_ict first: a blend/
+      // nowcast hour reissues gmfcast without rebuilding the tiles, and
+      // labeling this older axis with the fresher issue shifted every lead.
+      if(FIELDS[field].kind==="win") return winTiles(M.windows);
+      return stepTiles(M.steps, M.anchor_ict||tmeta.issued_ict||meta.issued_ict||meta.init_ict);
+    }
+    if(model==="vforce") return winTiles(meta.gm&&meta.gm.windows);
+    // admin mode labels the SELECTED source's own window axis (model_windows,
+    // like the dam site's tmeta.models[src].windows): a 6-hourly model's ends
+    // differ from the shared ensemble axis, and its frames are indexed on its
+    // own axis. Fall back to the ensemble axis for a pre-model_windows v2.json.
+    const MW=(meta.model_windows||{})[model];
+    if(MW) return winTiles(MW);
+    return meta.windows.map(d=>({top:`+${Math.round((Date.parse(d)-Date.parse(meta.issued_ict||meta.init_ict))/36e5)}h`,bot:`${dow(d)} ${dmy(d)} · ${hhmm(d)}`}));
+  },[meta,tmeta,mode,model,field]);
+
+  useEffect(()=>{if(idx>=tiles.length)setIdx(0);},[tiles.length]);
+  useEffect(()=>{if(!playing||!tiles.length)return;const t=setInterval(()=>setIdx(i=>(i+1)%tiles.length),900);return ()=>clearInterval(t);},[playing,tiles.length]);
+
+  if(!meta||!tmeta||!frames) return <div className="loading">Đang tải dữ liệu dự báo…</div>;
+  const tile=tiles[idx]?`${tiles[idx].top} · ${tiles[idx].bot}`:"";
+  // The model note (v2.json) now covers the grid-mode / 24-h areal-mean caveat,
+  // so the separate per-mode hint is no longer shown.
+  const unitHint = null;
+
+  return <>
+    <MapPane mode={mode} meta={meta} tmeta={tmeta} geo={geo} frames={frames} gm={gm}
+      model={model} field={field} frameIdx={idx} ver={meta.created_utc} winCount={tiles.length}
+      onPick={pickUnit} focusId={focus?focus.id:null} onPickGrid={pickGrid} zoomTo={zoomTo}/>
+
+    <div className={"float topleft"+(panelOpen?"":" collapsed")}><div className={"stack"+(panelOpen?"":" collapsed")}>
+      <div className="card brand">
+        <button className="ptoggle" onClick={()=>setPanelOpen(o=>!o)}
+          aria-expanded={panelOpen} title={panelOpen?"Thu gọn bảng điều khiển":"Mở bảng điều khiển"}
+          aria-label={panelOpen?"Thu gọn bảng điều khiển":"Mở bảng điều khiển"}>{panelOpen?"\u2715":"\u2630"}</button>
+        <h1>Dự báo mưa tổ hợp Việt Nam</h1>
+        <div className="sub">Phát tin {hhmm(meta.issued_ict||meta.init_ict)} ICT {dmy((meta.issued_ict||meta.init_ict).slice(0,10))}</div>
+        <div className="sub" style={{marginTop:2,opacity:.75}}>
+          {"Chu kỳ mô hình: "}
+          {meta.models.filter(m=>m.init_ict||m.issue_ict).map(m=>
+            `${m.short_vi} ${hhmm(m.init_ict||m.issue_ict)} ${dm(m.init_ict||m.issue_ict)}`).join(" · ")}
+        </div>
+      </div>
+      <Search geo={geo} onPick={pickSearch}/>
+      <div className="card pad" style={{paddingTop:8,paddingBottom:8}}>
+        <p className="hint" style={{margin:0}}>
+          {"Bản đồ ưu tiên: "}
+          <a href={"adminvn/overview_tinh.html?v="+encodeURIComponent(meta.created_utc)}
+             target="_blank" rel="noopener">{"tỉnh/thành ↗"}</a>
+          {" · "}
+          <a href={"adminvn/overview_xa.html?v="+encodeURIComponent(meta.created_utc)}
+             target="_blank" rel="noopener">{"xã/phường ↗"}</a>
+        </p>
+      </div>
+      <div className="card pad">
+        <p className="lbl">Kiểu hiển thị</p>
+        <div className="seg">
+          {MODES.map(m=><button key={m.key} className={mode===m.key?"on":""}
+            onClick={()=>{setMode(m.key);setIdx(0);setFocus(null);setUnitData(null);
+              setGridPoint(null);}}>{m.label}</button>)}
+        </div>
+        <p className="lbl" style={{marginTop:12}}>Mô hình dự báo</p>
+        <div className="seg mdl" style={{"--mc":MODEL_COLOR[model]}}>
+          {meta.models.map(m=><button key={m.id} className={model===m.id?"on":""}
+            style={model===m.id?{"--mc":MODEL_COLOR[m.id],"--mct":m.id==="ensemble"?"#3d3000":"#fff"}:{}}
+            onClick={()=>{setModel(m.id);setIdx(0);}}>{m.short_vi}</button>)}
+        </div>
+        <p className="lbl" style={{marginTop:12}}>Thông tin hiển thị</p>
+        <div className="seg">
+          {FIELD_ORDER.map(k=>{const f=FIELDS[k];const ok=avail.includes(k);
+            return <button key={k} className={field===k?"on":""} disabled={!ok}
+              onClick={()=>{setField(k);setIdx(0);}}>{f.label}</button>;})}
+        </div>
+        {unitHint&&<p className="hint" style={{marginTop:8}}>{unitHint}</p>}
+        {mode==="grid"&&<p className="hint" style={{marginTop:8}}>
+          Nhấp vào bản đồ để xem chuỗi thời gian VForce-cast tại ô lưới đó.</p>}
+        <p className="hint" style={{marginTop:8}}>{meta.note}</p>
+        <OffGridNote models={meta.models} model={model}/>
+      </div>
+      <Legend meta={meta} mode={mode} model={model} field={field} tile={tile}/>
+      {bulletin&&<Bulletin bulletin={bulletin} meta={meta} model={model}/>}
+      <Credit/>
+    </div></div>
+
+    <Timeline tiles={tiles} idx={idx} setIdx={setIdx} playing={playing} setPlaying={setPlaying}/>
+
+    {focus&&mode!=="grid"&&<UnitCard unit={focus} pages={pages} ver={meta.created_utc}
+      onClose={()=>{setFocus(null);setUnitData(null);}}/>}
+    {gridPoint&&mode==="grid"&&<GridDetail point={gridPoint} model={model} models={meta.models}
+      onClose={()=>setGridPoint(null)}/>}
+  </>;
+}
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
