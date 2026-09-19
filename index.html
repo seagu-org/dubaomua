@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Dự báo mưa tổ hợp Việt Nam</title>
+<!-- Exact-version CDN files pinned with Subresource Integrity (sha384 of the
+     file served at that URL, 2026-09-16). Changing a version REQUIRES a new
+     hash, or the browser refuses the file and the page stays blank:
+     curl -sL URL | openssl dgst -sha384 -binary | openssl base64 -A -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+  integrity="sha384-sHL9NAb7lN7rfvG5lfHpm643Xkcjzp4jFvuavGOndn6pjVqS6ny56CAt3nsEVT4H" crossorigin="anonymous">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+  integrity="sha384-cxOPjt7s7Iz04uaHJceBmS+qpjv2JkIHNVcuOrM+YHwZOmJGBXI00mdUXEq65HTH" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"
+  integrity="sha384-DGyLxAyjq0f9SPpVevD6IgztCFlnMF6oW/XQGmfe+IsZ8TqEiDrcHkMLKI6fiB/Z" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"
+  integrity="sha384-gTGxhz21lVGYNMcdJOyq01Edg0jhn/c22nsx0kyqP0TxaV5WVdsSH1fSDUf5YJj1" crossorigin="anonymous"></script>
+<style>
+  :root{--bg:#fff;--fg:#16202b;--muted:#6b7a8c;--line:#dfe6ee;
+    --panel:rgba(255,255,255,.96);--accent:#1f6fb2;--shadow:0 2px 12px rgba(16,32,48,.18);}
+  *{box-sizing:border-box;}
+  html,body,#root{height:100%;margin:0;}
+  body{font:14px/1.45 "Segoe UI",Roboto,Arial,sans-serif;color:var(--fg);background:var(--bg);overflow:hidden;}
+  #map{position:absolute;inset:0;z-index:0;background:#eef2f6;}
+  .leaflet-container{font:inherit;}
+  .island-label{font:400 12px/1.15 'Segoe UI',Roboto,Arial,sans-serif;color:#2a3a4a;
+    text-shadow:0 0 3px #fff,0 0 3px #fff,0 0 3px #fff;white-space:nowrap;text-align:center;letter-spacing:.2px;}
+  /* Show the raster as EXACT 0.25 deg grid cells (nearest-neighbour), same as
+     the dam dashboard — Leaflet's default smooth upscaling blurs cell edges. */
+  .leaflet-raster-pane img{image-rendering:pixelated;image-rendering:crisp-edges;}
+  .card{background:var(--panel);border-radius:10px;box-shadow:var(--shadow);border:1px solid var(--line);}
+  .float{position:absolute;z-index:500;}
+  .topleft{top:12px;left:12px;width:344px;max-width:calc(100vw - 24px);
+    max-height:calc(100vh - 104px);overflow-y:auto;overflow-x:hidden;padding-right:4px;scrollbar-width:thin;}
+  .stack{display:flex;flex-direction:column;gap:10px;}
+  .brand{padding:11px 13px;position:relative;padding-right:46px;}
+  /* Collapse control. The panel is full-width on a phone and would otherwise
+     cover the map, so it starts collapsed there (see panelOpen) and the whole
+     stack below the title hides. */
+  .ptoggle{position:absolute;top:8px;right:8px;width:30px;height:30px;
+    border:1px solid var(--line);background:#fff;border-radius:8px;cursor:pointer;
+    color:var(--muted);font-size:13px;line-height:1;display:flex;
+    align-items:center;justify-content:center;padding:0;}
+  .ptoggle:hover{border-color:var(--accent);color:var(--accent);}
+  .ptoggle:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
+  .stack.collapsed > *:not(.brand){display:none;}
+  .topleft.collapsed{max-height:none;overflow:visible;}
+  .brand h1{margin:0;font-size:15px;font-weight:800;}
+  .brand .sub{color:var(--muted);font-size:11.5px;margin-top:3px;}
+  .pad{padding:11px 13px;}
+  .title{font-weight:700;font-size:13px;margin:0 0 8px;}
+  .hint{color:var(--muted);font-size:11.5px;line-height:1.4;}
+  .lbl{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin:0 0 5px;}
+  .seg{display:flex;gap:4px;flex-wrap:wrap;}
+  .seg button{flex:1 1 auto;padding:6px 9px;border-radius:7px;border:1px solid var(--line);background:#fff;
+    font:inherit;font-size:12.5px;cursor:pointer;color:var(--fg);white-space:nowrap;}
+  .seg button.on{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600;}
+  .seg button:disabled{opacity:.35;cursor:not-allowed;}
+  .seg.mdl button.on{background:var(--mc,#37474f);border-color:var(--mc,#37474f);color:var(--mct,#fff);}
+  .legend-row{display:flex;align-items:center;gap:9px;padding:3px 0;font-size:12.5px;}
+  .swatch{width:15px;height:15px;border-radius:3px;flex:0 0 auto;border:1px solid rgba(0,0,0,.16);}
+  .timeline{position:absolute;left:0;right:0;bottom:0;z-index:500;background:#1c2530;color:#fff;box-shadow:0 -2px 12px rgba(0,0,0,.28);}
+  .tl-inner{display:flex;align-items:stretch;}
+  .tl-play{flex:0 0 auto;width:56px;border:0;background:#2b3746;color:#ffd54a;font-size:19px;cursor:pointer;border-right:1px solid #3a4757;}
+  .tl-play:hover{background:#35435a;}
+  .tl-days{flex:1 1 auto;display:flex;overflow-x:auto;}
+  .tl-day{flex:1 0 108px;border:0;border-right:1px solid #2f3a49;background:transparent;color:#b9c6d4;
+    font:inherit;padding:8px 4px 10px;cursor:pointer;text-align:center;position:relative;}
+  .tl-day:hover{background:#26313e;}
+  .tl-day.on{color:#ffd54a;font-weight:700;}
+  .tl-day.on::after{content:"";position:absolute;left:0;right:0;bottom:0;height:3px;background:#ffd54a;}
+  .tl-dow{font-size:13px;}
+  .tl-date{font-size:11px;opacity:.85;}
+  .vfnote{background:#f3f0ff;border:1px solid #d9cff5;color:#4a3a7a;border-radius:8px;padding:8px 11px;font-size:12px;margin-top:8px;}
+  .btn-link{background:none;border:0;color:var(--accent);font:inherit;font-size:12px;
+    cursor:pointer;padding:0;margin-top:6px;text-decoration:underline;}
+  .credit{font-size:11px;line-height:1.5;color:var(--muted);}
+  .credit a{color:var(--accent);}
+  .credit b{color:var(--fg);font-weight:600;}
+  .loading{padding:40px;text-align:center;color:var(--muted);}
+  .unit-tip{background:rgba(255,255,255,.95);border:1px solid var(--line);box-shadow:var(--shadow);
+    color:#16202b;font-size:12px;padding:4px 8px;border-radius:6px;}
+  .popup-tbl{border-collapse:collapse;font-size:12px;margin-top:4px;}
+  .popup-tbl th,.popup-tbl td{padding:2px 7px;text-align:right;border-bottom:1px solid #eef1f5;}
+  .popup-tbl th{color:var(--muted);font-weight:600;}
+  .popup-tbl td:first-child,.popup-tbl th:first-child{text-align:left;}
+  .drawer{position:absolute;top:0;right:0;bottom:0;width:494px;max-width:100vw;z-index:900;background:#fff;
+    border-left:1px solid var(--line);box-shadow:-3px 0 16px rgba(16,32,48,.16);display:flex;flex-direction:column;}
+  .drawer header{padding:13px 15px;border-bottom:1px solid var(--line);display:flex;align-items:flex-start;gap:10px;}
+  .drawer header h2{margin:0;font-size:18px;}
+  .drawer header .sub{color:var(--muted);font-size:12.5px;margin-top:3px;}
+  .drawer .body{overflow-y:auto;padding:13px 15px 32px;}
+  .xbtn{margin-left:auto;border:0;background:#eef2f6;border-radius:7px;width:30px;height:30px;
+    font-size:17px;cursor:pointer;flex:0 0 auto;color:var(--muted);}
+  .chart{margin:0 0 20px;}
+  .chart h3{font-size:13px;margin:0 0 2px;}
+  .chart .cap{color:var(--muted);font-size:11.5px;margin:0 0 6px;}
+  .keys{display:flex;gap:12px;flex-wrap:wrap;font-size:11.5px;color:var(--muted);margin-bottom:8px;}
+  .key{display:flex;align-items:center;gap:5px;}
+  .key i{width:11px;height:11px;border-radius:2px;display:inline-block;}
+  .csvbtn{background:var(--accent);color:#fff;border:0;border-radius:7px;padding:7px 12px;font:inherit;
+    font-size:12.5px;font-weight:600;cursor:pointer;margin-bottom:14px;}
+  .csvbtn:hover{filter:brightness(1.06);}
+  @media (max-width:720px){.drawer{width:100vw;}}
+  .searchbox{position:relative;}
+  .searchbox input{width:100%;padding:11px 13px;border:0;border-radius:10px;font:inherit;outline:none;background:transparent;color:var(--fg);}
+  .results{position:absolute;top:100%;left:0;right:0;margin-top:6px;max-height:340px;overflow-y:auto;z-index:10;}
+  .results button{display:block;width:100%;text-align:left;padding:8px 12px;background:none;border:0;
+    border-bottom:1px solid var(--line);font:inherit;color:inherit;cursor:pointer;}
+  .results button:hover{background:#eef5fb;}
+  .results .sub{color:var(--muted);font-size:12px;}
+  .results .tag{float:right;font-size:10.5px;color:var(--muted);border:1px solid var(--line);
+    border-radius:4px;padding:0 4px;margin-left:6px;}
+  @media (max-width:720px){.topleft{width:calc(100vw - 24px);}}
+</style>
+</head>
+<body>
+<div id="root"><div class="loading">Đang tải dữ liệu dự báo…</div></div>
+<!-- Plain JS compiled from JSX by scripts/build_web.py — do not edit these
+     files; edit web-shared/src/*.jsx, rebuild, and bump ?v=. dashboard-core.js
+     (shared logic, window.QPFShared) must load before app.js. -->
+<script src="dashboard-core.js?v=18"></script>
+<script src="app.js?v=2"></script>
+</body>
+</html>
